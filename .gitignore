@@ -9,3 +9,9 @@ Thumbs.db
 
 # Chặn các file log
 *.log
+
+# Maven build directory
+**/target/
+.idea/
+.vscode/
+*.iml
