@@ -5,10 +5,12 @@ import com.storyreading.dto.CommentResponse;
 import com.storyreading.mapper.CommentMapper;
 import com.storyreading.model.Chapter;
 import com.storyreading.model.Comment;
+import com.storyreading.model.Story;
 import com.storyreading.model.User;
 import com.storyreading.model.enums.UserRole;
 import com.storyreading.repository.ChapterRepository;
 import com.storyreading.repository.CommentRepository;
+import com.storyreading.repository.StoryRepository;
 import com.storyreading.repository.UserRepository;
 import com.storyreading.service.CommentService;
 import org.springframework.data.domain.Page;
@@ -22,15 +24,18 @@ public class CommentServiceImpl implements CommentService {
 
     private final CommentRepository commentRepository;
     private final ChapterRepository chapterRepository;
+    private final StoryRepository storyRepository;
     private final UserRepository userRepository;
     private final CommentMapper commentMapper;
 
     public CommentServiceImpl(CommentRepository commentRepository,
                               ChapterRepository chapterRepository,
+                              StoryRepository storyRepository,
                               UserRepository userRepository,
                               CommentMapper commentMapper) {
         this.commentRepository = commentRepository;
         this.chapterRepository = chapterRepository;
+        this.storyRepository = storyRepository;
         this.userRepository = userRepository;
         this.commentMapper = commentMapper;
     }
@@ -40,8 +45,18 @@ public class CommentServiceImpl implements CommentService {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
-        Chapter chapter = chapterRepository.findById(request.getChapterId())
-                .orElseThrow(() -> new IllegalArgumentException("Chapter not found"));
+        Chapter chapter = null;
+        Story story = null;
+
+        if (request.getStoryId() != null) {
+            story = storyRepository.findById(request.getStoryId())
+                    .orElseThrow(() -> new IllegalArgumentException("Story not found"));
+        } else if (request.getChapterId() != null) {
+            chapter = chapterRepository.findById(request.getChapterId())
+                    .orElseThrow(() -> new IllegalArgumentException("Chapter not found"));
+        } else {
+            throw new IllegalArgumentException("Either storyId or chapterId must be provided");
+        }
 
         Comment parent = null;
         if (request.getParentId() != null) {
@@ -59,6 +74,7 @@ public class CommentServiceImpl implements CommentService {
 
         Comment comment = Comment.builder()
                 .chapter(chapter)
+                .story(story)
                 .user(user)
                 .parent(parent)
                 .content(request.getContent())
@@ -103,6 +119,13 @@ public class CommentServiceImpl implements CommentService {
             // Fetch nested replies if needed, done automatically in mapper if replies collection is populated
             return resp;
         });
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<CommentResponse> getCommentsByStory(Long storyId, Pageable pageable) {
+        Page<Comment> comments = commentRepository.findByStoryStoryIdAndParentIsNullAndIsHiddenFalseOrderByCreatedAtDesc(storyId, pageable);
+        return comments.map(commentMapper::toDto);
     }
 
     @Override

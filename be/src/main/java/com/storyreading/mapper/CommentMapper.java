@@ -17,6 +17,7 @@ public class CommentMapper {
         return CommentResponse.builder()
                 .commentId(comment.getCommentId())
                 .chapterId(comment.getChapter() != null ? comment.getChapter().getChapterId() : null)
+                .storyId(comment.getStory() != null ? comment.getStory().getStoryId() : null)
                 .userId(comment.getUser() != null ? comment.getUser().getUserId() : null)
                 .username(comment.getUser() != null ? comment.getUser().getUsername() : null)
                 .avatarUrl(comment.getUser() != null ? comment.getUser().getAvatarUrl() : null)

@@ -65,6 +65,15 @@ public class CommentController {
         return ResponseEntity.ok(comments);
     }
 
+    @GetMapping("/stories/{storyId}/comments")
+    @Operation(summary = "Get comments of a specific story with pagination")
+    public ResponseEntity<Page<CommentResponse>> getCommentsByStory(
+            @PathVariable Long storyId,
+            Pageable pageable) {
+        Page<CommentResponse> comments = commentService.getCommentsByStory(storyId, pageable);
+        return ResponseEntity.ok(comments);
+    }
+
     @GetMapping("/comments")
     @Operation(summary = "Get all comments with pagination (Admin/Moderator)")
     public ResponseEntity<Page<CommentResponse>> getAllComments(Pageable pageable) {

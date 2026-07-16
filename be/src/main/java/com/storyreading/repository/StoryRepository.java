@@ -10,9 +10,12 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface StoryRepository extends JpaRepository<Story, Long> {
+
+    Optional<Story> findBySlug(String slug);
 
     Page<Story> findByStatus(ContentStatus status, Pageable pageable);
 

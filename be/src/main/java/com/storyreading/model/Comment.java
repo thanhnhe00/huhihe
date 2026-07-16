@@ -25,10 +25,13 @@ public class Comment {
     @Column(name = "comment_id")
     private Long commentId;
 
-    @NotNull
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "chapter_id", nullable = false)
+    @JoinColumn(name = "chapter_id")
     private Chapter chapter;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "story_id")
+    private Story story;
 
     @NotNull
     @ManyToOne(fetch = FetchType.LAZY)

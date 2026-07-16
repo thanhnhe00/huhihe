@@ -5,6 +5,7 @@ import com.storyreading.dto.StoryCreateRequest;
 import com.storyreading.dto.StoryResponse;
 import com.storyreading.dto.StoryUpdateRequest;
 import com.storyreading.mapper.StoryMapper;
+import com.storyreading.util.SlugUtils;
 import com.storyreading.model.Category;
 import com.storyreading.model.Story;
 import com.storyreading.model.User;
@@ -52,6 +53,29 @@ public class StoryServiceImpl implements StoryService {
         this.storyMapper = storyMapper;
     }
 
+    private String generateUniqueSlug(String title, Long excludeStoryId) {
+        String baseSlug = SlugUtils.toSlug(title);
+        if (baseSlug.isEmpty()) {
+            baseSlug = "story";
+        }
+        String slug = baseSlug;
+        int count = 1;
+        while (true) {
+            final String currentSlug = slug;
+            java.util.Optional<Story> existing = storyRepository.findBySlug(currentSlug);
+            if (existing.isPresent()) {
+                if (excludeStoryId != null && existing.get().getStoryId().equals(excludeStoryId)) {
+                    break;
+                }
+                slug = baseSlug + "-" + count;
+                count++;
+            } else {
+                break;
+            }
+        }
+        return slug;
+    }
+
     @Override
     public StoryResponse createStory(StoryCreateRequest request, String username) {
         User creator = userRepository.findByUsername(username)
@@ -65,6 +89,7 @@ public class StoryServiceImpl implements StoryService {
         Story story = Story.builder()
                 .creator(creator)
                 .title(request.getTitle())
+                .slug(generateUniqueSlug(request.getTitle(), null))
                 .author(request.getAuthor() != null ? request.getAuthor() : creator.getUsername())
                 .description(request.getDescription())
                 .coverImage(request.getCoverImage())
@@ -75,7 +100,7 @@ public class StoryServiceImpl implements StoryService {
                 .build();
 
         Story savedStory = storyRepository.save(story);
-        return storyMapper.toDto(savedStory, 0.0, 0L, 0L);
+        return storyMapper.toDto(savedStory, 0.0, 0L, 0L, 0L);
     }
 
     @Override
@@ -92,8 +117,14 @@ public class StoryServiceImpl implements StoryService {
         }
 
         if (request.getTitle() != null) {
-            story.setTitle(request.getTitle());
+            if (!request.getTitle().equals(story.getTitle()) || story.getSlug() == null) {
+                story.setTitle(request.getTitle());
+                story.setSlug(generateUniqueSlug(request.getTitle(), story.getStoryId()));
+            }
+        } else if (story.getSlug() == null) {
+            story.setSlug(generateUniqueSlug(story.getTitle(), story.getStoryId()));
         }
+
         if (request.getAuthor() != null) {
             story.setAuthor(request.getAuthor());
         }
@@ -186,6 +217,28 @@ public class StoryServiceImpl implements StoryService {
 
     @Override
     @Transactional(readOnly = true)
+    public StoryResponse getStoryBySlug(String slug, String username) {
+        Story story = storyRepository.findBySlug(slug)
+                .orElseThrow(() -> new IllegalArgumentException("Story not found"));
+
+        // Checking age rating restrictions
+        if (username != null) {
+            User user = userRepository.findByUsername(username).orElse(null);
+            if (user != null) {
+                int age = LocalDateTime.now().getYear() - user.getBirthDate().getYear();
+                if (story.getAgeRating() > 0 && age < story.getAgeRating()) {
+                    throw new IllegalStateException("This story is age-restricted (Requires " + story.getAgeRating() + "+)");
+                }
+            }
+        } else if (story.getAgeRating() > 0) {
+            throw new IllegalStateException("This story is age-restricted and requires user login.");
+        }
+
+        return getStoryResponse(story);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Page<StoryCardDto> searchStories(String keyword, Pageable pageable) {
         return storyRepository.searchStories(keyword, ContentStatus.PUBLISHED, pageable)
                 .map(this::toStoryCardDto);
@@ -247,7 +300,8 @@ public class StoryServiceImpl implements StoryService {
         Double avgRating = ratingRepository.getAverageRatingForStory(story.getStoryId());
         Long follows = followRepository.countByStoryStoryId(story.getStoryId());
         Long views = viewLogRepository.countByStoryStoryId(story.getStoryId());
-        return storyMapper.toDto(story, avgRating, follows, views);
+        Long ratingCount = ratingRepository.countByStoryStoryId(story.getStoryId());
+        return storyMapper.toDto(story, avgRating, follows, views, ratingCount);
     }
 
     private StoryCardDto toStoryCardDto(Story story) {
