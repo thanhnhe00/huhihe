@@ -1,17 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Menu, X, BookOpen, History, Heart, Sun, Moon, TrendingUp, ChevronDown } from 'lucide-react';
+import { Search, Menu, X, BookOpen, History, Heart, Sun, Moon, TrendingUp, ChevronDown, LogOut, User, Lock, Mail, Calendar, Settings } from 'lucide-react';
 import { Manga } from '../types';
 import { MOCK_MANGAS, GENRES } from '../data/mangas';
+import api from '../utils/api';
 
 interface HeaderProps {
-  currentView: 'home' | 'detail' | 'reader' | 'following' | 'history';
-  onNavigate: (view: 'home' | 'detail' | 'reader' | 'following' | 'history', mangaId?: string, chapterId?: string) => void;
+  currentView: 'home' | 'detail' | 'reader' | 'following' | 'history' | 'management';
+  onNavigate: (view: 'home' | 'detail' | 'reader' | 'following' | 'history' | 'management', mangaId?: string, chapterId?: string) => void;
   onSearch: (query: string) => void;
   onGenreSelect: (genre: string | null) => void;
   selectedGenre: string | null;
   darkMode: boolean;
   setDarkMode: (dark: boolean) => void;
   followedCount: number;
+  onAuthChange?: () => void;
 }
 
 export default function Header({
@@ -22,7 +24,8 @@ export default function Header({
   selectedGenre,
   darkMode,
   setDarkMode,
-  followedCount
+  followedCount,
+  onAuthChange
 }: HeaderProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showMobileMenu, setShowMobileMenu] = useState(false);
@@ -30,27 +33,142 @@ export default function Header({
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchResults, setSearchResults] = useState<Manga[]>([]);
 
-  // Update live search results
+  // Auth State
+  const [username, setUsername] = useState<string | null>(localStorage.getItem('username'));
+  const [role, setRole] = useState<string | null>(localStorage.getItem('role'));
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+
+  // Auth Modal State
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [usernameInput, setUsernameInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [emailInput, setEmailInput] = useState('');
+  const [birthDateInput, setBirthDateInput] = useState('2000-01-01');
+  const [roleInput, setRoleInput] = useState<'READER' | 'CREATOR'>('READER');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  // Sync auth state
   useEffect(() => {
-    if (searchQuery.trim().length > 0) {
-      const filtered = MOCK_MANGAS.filter(m =>
-        m.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (m.otherTitle && m.otherTitle.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        m.author.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-      setSearchResults(filtered);
-      setShowSearchResults(true);
-    } else {
-      setSearchResults([]);
-      setShowSearchResults(false);
-    }
-    onSearch(searchQuery);
+    const handleAuthUpdate = () => {
+      setUsername(localStorage.getItem('username'));
+      setRole(localStorage.getItem('role'));
+    };
+    window.addEventListener('storage', handleAuthUpdate);
+    window.addEventListener('unauthorized-api-call', handleLogout);
+    return () => {
+      window.removeEventListener('storage', handleAuthUpdate);
+      window.removeEventListener('unauthorized-api-call', handleLogout);
+    };
+  }, []);
+
+  // Update live search results from real backend API using debounced search
+  useEffect(() => {
+    const fetchSearchSuggestions = async () => {
+      if (searchQuery.trim().length > 0) {
+        try {
+          const res = await api.get(`/stories?search=${encodeURIComponent(searchQuery)}&size=10`);
+          const storyCards = res.data.content || [];
+          const mapped: Manga[] = storyCards.map((card: any) => ({
+            id: card.storyId.toString(),
+            title: card.title,
+            author: card.author || 'Khuyết Danh',
+            coverUrl: card.coverImage,
+            genres: card.categoryNames || [],
+            viewCount: 0,
+            commentCount: 0,
+            followerCount: 0,
+            rating: card.averageRating || 5.0,
+            chapters: []
+          }));
+          setSearchResults(mapped);
+          setShowSearchResults(true);
+        } catch (e) {
+          console.error('Failed to fetch search suggestions', e);
+        }
+      } else {
+        setSearchResults([]);
+        setShowSearchResults(false);
+      }
+      onSearch(searchQuery);
+    };
+
+    const timer = setTimeout(fetchSearchSuggestions, 300);
+    return () => clearTimeout(timer);
   }, [searchQuery]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setShowSearchResults(false);
     onNavigate('home');
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('username');
+    localStorage.removeItem('role');
+    setUsername(null);
+    setRole(null);
+    setShowProfileMenu(false);
+    if (onAuthChange) onAuthChange();
+    onNavigate('home');
+  };
+
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
+    setLoading(true);
+    try {
+      const response = await api.post('/auth/login', {
+        username: usernameInput,
+        password: passwordInput,
+      });
+      const { token, role: userRole } = response.data;
+      localStorage.setItem('token', token);
+      localStorage.setItem('username', usernameInput);
+      localStorage.setItem('role', userRole);
+
+      setUsername(usernameInput);
+      setRole(userRole);
+      setSuccessMsg('Đăng nhập thành công!');
+
+      setTimeout(() => {
+        setShowAuthModal(false);
+        setUsernameInput('');
+        setPasswordInput('');
+        if (onAuthChange) onAuthChange();
+      }, 1000);
+    } catch (err: any) {
+      setErrorMsg(err.response?.data?.message || 'Tên đăng nhập hoặc mật khẩu không đúng.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
+    setLoading(true);
+    try {
+      await api.post('/auth/register', {
+        username: usernameInput,
+        password: passwordInput,
+        email: emailInput,
+        birthDate: birthDateInput,
+        role: roleInput
+      });
+      setSuccessMsg('Đăng ký tài khoản thành công! Bạn có thể đăng nhập ngay.');
+      setAuthMode('login');
+      setEmailInput('');
+    } catch (err: any) {
+      setErrorMsg(err.response?.data?.message || 'Đăng ký không thành công. Vui lòng thử lại.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const selectSearchResult = (mangaId: string) => {
@@ -165,6 +283,57 @@ export default function Header({
             <History className="h-4 w-4" />
             <span>Lịch Sử</span>
           </button>
+
+          {/* Authentication & Profile dropdown */}
+          {username ? (
+            <div className="relative">
+              <button
+                onClick={() => setShowProfileMenu(!showProfileMenu)}
+                className="flex items-center space-x-1 px-2.5 py-1.5 rounded-full text-xs font-bold hover:bg-neutral-800 text-neutral-300 transition"
+                id="profile-dropdown-btn"
+              >
+                <div className="w-5 h-5 rounded-full bg-orange-500 text-neutral-950 flex items-center justify-center font-black text-[9px] uppercase">
+                  {username[0]}
+                </div>
+                <span className="hidden sm:inline max-w-[80px] truncate">{username}</span>
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+
+              {showProfileMenu && (
+                <div className="absolute right-0 mt-2 w-48 rounded-lg border border-neutral-750 bg-neutral-850 p-1 shadow-2xl z-50">
+                  <div className="px-3 py-2 text-[10px] font-black text-neutral-400 border-b border-neutral-700/50 mb-1 tracking-wider uppercase">
+                    Quyền: {role === 'ADMIN' ? 'Admin' : role === 'CREATOR' ? 'Sáng tác' : 'Độc giả'}
+                  </div>
+                  {(role === 'CREATOR' || role === 'ADMIN') && (
+                    <button
+                      onClick={() => { setShowProfileMenu(false); onNavigate('management'); }}
+                      className="w-full text-left px-3 py-2 text-xs text-neutral-200 hover:bg-neutral-850 hover:text-orange-400 rounded-md transition font-semibold flex items-center space-x-2"
+                      id="nav-management"
+                    >
+                      <Settings className="h-3.5 w-3.5 text-neutral-400" />
+                      <span>Bảng điều khiển</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={handleLogout}
+                    className="w-full text-left px-3 py-2 text-xs text-red-400 hover:bg-neutral-850 hover:text-red-300 rounded-md transition font-semibold flex items-center space-x-2"
+                    id="logout-btn"
+                  >
+                    <LogOut className="h-3.5 w-3.5" />
+                    <span>Đăng Xuất</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={() => { setShowAuthModal(true); setAuthMode('login'); }}
+              className="flex items-center space-x-1 px-3.5 py-1.5 rounded-full text-xs font-extrabold bg-orange-500 hover:bg-orange-400 text-neutral-950 transition cursor-pointer shadow"
+              id="login-btn"
+            >
+              <span>Đăng Nhập</span>
+            </button>
+          )}
 
           {/* Mobile hamburger menu toggle */}
           <button
@@ -342,6 +511,181 @@ export default function Header({
               <History className="h-4 w-4" />
               <span>Lịch Sử</span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Sleek Authentication Modal Overlay */}
+      {showAuthModal && (
+        <div className="fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-xl max-w-sm w-full p-6 shadow-2xl relative">
+            <button
+              onClick={() => { setShowAuthModal(false); setErrorMsg(''); setSuccessMsg(''); }}
+              className="absolute top-4 right-4 text-neutral-400 hover:text-white"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <h3 className="text-lg font-black text-white text-center mb-6">
+              {authMode === 'login' ? 'ĐĂNG NHẬP HỆ THỐNG' : 'ĐĂNG KÝ TÀI KHOẢN'}
+            </h3>
+
+            {errorMsg && (
+              <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs p-3 rounded-lg mb-4 font-semibold text-center">
+                {errorMsg}
+              </div>
+            )}
+
+            {successMsg && (
+              <div className="bg-green-500/10 border border-green-500/20 text-green-400 text-xs p-3 rounded-lg mb-4 font-semibold text-center">
+                {successMsg}
+              </div>
+            )}
+
+            {authMode === 'login' ? (
+              <form onSubmit={handleLoginSubmit} className="space-y-4">
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-neutral-500 block mb-1">Tên tài khoản</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      required
+                      value={usernameInput}
+                      onChange={(e) => setUsernameInput(e.target.value)}
+                      placeholder="Nhập tên tài khoản..."
+                      className="w-full text-xs bg-neutral-950 border border-neutral-800 focus:border-orange-500 rounded-lg p-2.5 pl-8 text-neutral-200 outline-none transition"
+                    />
+                    <User className="absolute left-2.5 top-3 h-3.5 w-3.5 text-neutral-500" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-neutral-500 block mb-1">Mật khẩu</label>
+                  <div className="relative">
+                    <input
+                      type="password"
+                      required
+                      value={passwordInput}
+                      onChange={(e) => setPasswordInput(e.target.value)}
+                      placeholder="Nhập mật khẩu..."
+                      className="w-full text-xs bg-neutral-950 border border-neutral-800 focus:border-orange-500 rounded-lg p-2.5 pl-8 text-neutral-200 outline-none transition"
+                    />
+                    <Lock className="absolute left-2.5 top-3 h-3.5 w-3.5 text-neutral-500" />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-neutral-950 py-2.5 rounded-lg text-xs font-black transition cursor-pointer shadow mt-2"
+                >
+                  {loading ? 'ĐANG ĐĂNG NHẬP...' : 'ĐĂNG NHẬP'}
+                </button>
+
+                <div className="text-center text-xs text-neutral-400 mt-4">
+                  Chưa có tài khoản?{' '}
+                  <button
+                    type="button"
+                    onClick={() => { setAuthMode('register'); setErrorMsg(''); setSuccessMsg(''); }}
+                    className="text-orange-400 font-bold hover:underline"
+                  >
+                    Đăng ký ngay
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form onSubmit={handleRegisterSubmit} className="space-y-4">
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-neutral-500 block mb-1">Tên tài khoản</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      required
+                      value={usernameInput}
+                      onChange={(e) => setUsernameInput(e.target.value)}
+                      placeholder="Nhập tên tài khoản..."
+                      className="w-full text-xs bg-neutral-950 border border-neutral-800 focus:border-orange-500 rounded-lg p-2.5 pl-8 text-neutral-200 outline-none transition"
+                    />
+                    <User className="absolute left-2.5 top-3 h-3.5 w-3.5 text-neutral-500" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-neutral-500 block mb-1">Email</label>
+                  <div className="relative">
+                    <input
+                      type="email"
+                      required
+                      value={emailInput}
+                      onChange={(e) => setEmailInput(e.target.value)}
+                      placeholder="email@example.com"
+                      className="w-full text-xs bg-neutral-950 border border-neutral-800 focus:border-orange-500 rounded-lg p-2.5 pl-8 text-neutral-200 outline-none transition"
+                    />
+                    <Mail className="absolute left-2.5 top-3 h-3.5 w-3.5 text-neutral-500" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-neutral-500 block mb-1">Mật khẩu</label>
+                  <div className="relative">
+                    <input
+                      type="password"
+                      required
+                      value={passwordInput}
+                      onChange={(e) => setPasswordInput(e.target.value)}
+                      placeholder="Nhập mật khẩu..."
+                      className="w-full text-xs bg-neutral-950 border border-neutral-800 focus:border-orange-500 rounded-lg p-2.5 pl-8 text-neutral-200 outline-none transition"
+                    />
+                    <Lock className="absolute left-2.5 top-3 h-3.5 w-3.5 text-neutral-500" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-neutral-500 block mb-1">Ngày sinh</label>
+                  <div className="relative">
+                    <input
+                      type="date"
+                      required
+                      value={birthDateInput}
+                      onChange={(e) => setBirthDateInput(e.target.value)}
+                      className="w-full text-xs bg-neutral-950 border border-neutral-800 focus:border-orange-500 rounded-lg p-2.5 pl-8 text-neutral-200 outline-none transition"
+                    />
+                    <Calendar className="absolute left-2.5 top-3 h-3.5 w-3.5 text-neutral-500" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-neutral-500 block mb-1">Vai trò</label>
+                  <select
+                    value={roleInput}
+                    onChange={(e) => setRoleInput(e.target.value as any)}
+                    className="w-full text-xs bg-neutral-950 border border-neutral-800 focus:border-orange-500 rounded-lg p-2.5 text-neutral-300 outline-none cursor-pointer"
+                  >
+                    <option value="READER">Độc giả (Reader)</option>
+                    <option value="CREATOR">Người sáng tác (Creator)</option>
+                  </select>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-neutral-950 py-2.5 rounded-lg text-xs font-black transition cursor-pointer shadow mt-2"
+                >
+                  {loading ? 'ĐANG ĐĂNG KÝ...' : 'ĐĂNG KÝ'}
+                </button>
+
+                <div className="text-center text-xs text-neutral-400 mt-4">
+                  Đã có tài khoản?{' '}
+                  <button
+                    type="button"
+                    onClick={() => { setAuthMode('login'); setErrorMsg(''); setSuccessMsg(''); }}
+                    className="text-orange-400 font-bold hover:underline"
+                  >
+                    Đăng nhập
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

@@ -6,11 +6,12 @@ import {
 import { Manga, Chapter } from '../types';
 import CommentSection from '../components/CommentSection';
 import { motion } from 'motion/react';
+import api from '../utils/api';
 
 interface MangaDetailViewProps {
   mangaId: string;
   mangas: Manga[];
-  onNavigate: (view: 'home' | 'detail' | 'reader' | 'following' | 'history', mangaId?: string, chapterId?: string) => void;
+  onNavigate: (view: 'home' | 'detail' | 'reader' | 'following' | 'history' | 'management', mangaId?: string, chapterId?: string) => void;
   onGenreSelect: (genre: string | null) => void;
   userEmail?: string;
   isFollowed: boolean;
@@ -26,26 +27,163 @@ export default function MangaDetailView({
   isFollowed,
   onToggleFollow
 }: MangaDetailViewProps) {
-  const manga = mangas.find(m => m.id === mangaId);
+  const [manga, setManga] = useState<Manga | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [dbId, setDbId] = useState<number | null>(null);
+  const [localIsFollowed, setLocalIsFollowed] = useState(isFollowed);
+
   const [chapterQuery, setChapterQuery] = useState('');
   const [sortAsc, setSortAsc] = useState(false); // Default descending (newest chapter first)
   const [userRating, setUserRating] = useState<number | null>(null);
   const [currentRating, setCurrentRating] = useState(4.8);
   const [ratingCount, setRatingCount] = useState(1420);
 
-  // Load rating count and average
+  // Dynamic loading from real API
   useEffect(() => {
-    if (manga) {
-      setCurrentRating(manga.rating);
-      // Retrieve customized local ratings if any
-      const localRate = localStorage.getItem(`rating_${manga.id}`);
-      if (localRate) {
-        setUserRating(parseInt(localRate));
+    const fetchMangaDetails = async () => {
+      setLoading(true);
+      try {
+        let storyData: any;
+        const isNumeric = /^\d+$/.test(mangaId);
+        if (isNumeric) {
+          const res = await api.get(`/stories/${mangaId}`);
+          storyData = res.data;
+        } else {
+          const res = await api.get(`/stories/slug/${mangaId}`);
+          storyData = res.data;
+        }
+
+        setDbId(storyData.storyId);
+
+        // Fetch chapters
+        const chapRes = await api.get(`/stories/${storyData.storyId}/chapters`);
+        const mappedChapters = chapRes.data.map((ch: any) => ({
+          id: ch.chapterId.toString(),
+          mangaId: storyData.slug || storyData.storyId.toString(),
+          title: ch.title || `Chapter ${ch.chapterNumber}`,
+          updatedAt: ch.createdAt || new Date().toISOString(),
+          pages: ch.imageUrls || [],
+          viewCount: 0
+        }));
+
+        const mappedManga: Manga = {
+          id: storyData.slug || storyData.storyId.toString(),
+          title: storyData.title,
+          otherTitle: storyData.title,
+          author: storyData.author || 'Khuyết Danh',
+          status: storyData.status === 'COMPLETED' || storyData.status === 'Hoàn thành' ? 'Hoàn thành' : 'Đang tiến hành',
+          description: storyData.description || '',
+          coverUrl: storyData.coverImage || 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&auto=format&fit=crop&q=80',
+          bannerUrl: storyData.coverImage || '',
+          genres: storyData.categories ? storyData.categories.map((c: any) => c.name) : [],
+          viewCount: storyData.viewCount || 0,
+          commentCount: 0,
+          followerCount: storyData.followCount || 0,
+          rating: storyData.averageRating || 4.5,
+          chapters: mappedChapters,
+          isHot: storyData.averageRating && storyData.averageRating >= 4.7
+        };
+
+        setManga(mappedManga);
+        setCurrentRating(storyData.averageRating || 4.5);
+        setRatingCount(storyData.ratingCount || 0);
+
+        // Fetch follow status if logged in
+        if (localStorage.getItem('token')) {
+          try {
+            const followStatusRes = await api.get(`/follows/${storyData.storyId}/status`);
+            setLocalIsFollowed(followStatusRes.data);
+          } catch (e) {
+            console.error(e);
+          }
+          try {
+            const userRatingRes = await api.get(`/ratings/story/${storyData.storyId}/user`);
+            if (userRatingRes.data > 0) {
+              setUserRating(userRatingRes.data);
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        } else {
+          // Retrieve local storage rating as fallback
+          const localRate = localStorage.getItem(`rating_${mappedManga.id}`);
+          if (localRate) {
+            setUserRating(parseInt(localRate));
+          }
+          setLocalIsFollowed(isFollowed);
+        }
+      } catch (err) {
+        console.error('Failed to load manga details', err);
+        // Fallback to local props if API fails
+        const localManga = mangas.find(m => m.id === mangaId);
+        if (localManga) {
+          setManga(localManga);
+          setCurrentRating(localManga.rating);
+          setLocalIsFollowed(isFollowed);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMangaDetails();
+    window.scrollTo({ top: 0 });
+  }, [mangaId, isFollowed]);
+
+  // Handle rating star click
+  const handleRate = async (star: number) => {
+    if (!manga || !dbId) return;
+
+    setUserRating(star);
+    localStorage.setItem(`rating_${manga.id}`, star.toString());
+
+    if (localStorage.getItem('token')) {
+      try {
+        await api.post('/ratings', {
+          storyId: dbId,
+          score: star
+        });
+        // Reload average rating from server
+        const avgRes = await api.get(`/ratings/story/${dbId}/average`);
+        setCurrentRating(avgRes.data);
+        setRatingCount(prev => prev + 1);
+      } catch (e) {
+        console.error('Failed to submit rating to server', e);
+      }
+    } else {
+      const newRating = ((currentRating * ratingCount + star) / (ratingCount + 1)).toFixed(1);
+      setCurrentRating(parseFloat(newRating));
+      setRatingCount(prev => prev + 1);
+    }
+  };
+
+  const handleToggleFollowClick = async () => {
+    if (!manga || !dbId) return;
+
+    if (localStorage.getItem('token')) {
+      try {
+        if (localIsFollowed) {
+          await api.delete(`/follows/${dbId}`);
+          setLocalIsFollowed(false);
+        } else {
+          await api.post('/follows', { storyId: dbId });
+          setLocalIsFollowed(true);
+        }
+      } catch (e) {
+        console.error('Failed to toggle follow status', e);
       }
     }
-    // Scroll to top
-    window.scrollTo({ top: 0 });
-  }, [mangaId]);
+    onToggleFollow(manga.id);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-neutral-400">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mb-3"></div>
+        <p className="text-xs font-bold uppercase tracking-wider">Đang tải chi tiết bộ truyện...</p>
+      </div>
+    );
+  }
 
   if (!manga) {
     return (
@@ -60,17 +198,6 @@ export default function MangaDetailView({
       </div>
     );
   }
-
-  // Handle rating star click
-  const handleRate = (star: number) => {
-    setUserRating(star);
-    localStorage.setItem(`rating_${manga.id}`, star.toString());
-    
-    // Average updates slightly to reflect contribution
-    const newRating = ((currentRating * ratingCount + star) / (ratingCount + 1)).toFixed(1);
-    setCurrentRating(parseFloat(newRating));
-    setRatingCount(prev => prev + 1);
-  };
 
   // Chapter sorting and filtering
   const getFilteredChapters = () => {
@@ -146,16 +273,16 @@ export default function MangaDetailView({
             {/* Quick stats / buttons directly under cover */}
             <div className="mt-4 flex flex-col space-y-2">
               <button
-                onClick={() => onToggleFollow(manga.id)}
+                onClick={handleToggleFollowClick}
                 className={`flex items-center justify-center space-x-2 py-2.5 rounded-lg text-xs font-bold transition cursor-pointer shadow-md ${
-                  isFollowed
+                  localIsFollowed
                     ? 'bg-red-600 hover:bg-red-700 text-white'
                     : 'bg-orange-500 hover:bg-orange-400 text-neutral-950'
                 }`}
                 id="toggle-follow-btn"
               >
-                <Heart className={`h-4 w-4 ${isFollowed ? 'fill-current' : ''}`} />
-                <span>{isFollowed ? 'Đã Theo Dõi (Bỏ thích)' : 'Theo Dõi Truyện'}</span>
+                <Heart className={`h-4 w-4 ${localIsFollowed ? 'fill-current' : ''}`} />
+                <span>{localIsFollowed ? 'Đã Theo Dõi (Bỏ thích)' : 'Theo Dõi Truyện'}</span>
               </button>
             </div>
           </div>
