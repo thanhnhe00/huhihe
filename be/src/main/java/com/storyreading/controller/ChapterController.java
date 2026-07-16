@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
@@ -46,6 +47,7 @@ public class ChapterController {
 
     @PostMapping("/stories/{storyId}/chapters")
     @Operation(summary = "Create a new chapter for a story")
+    @PreAuthorize("hasAnyRole('CREATOR','ADMIN')")
     public ResponseEntity<ChapterResponse> createChapter(
             @PathVariable Long storyId,
             @Valid @RequestBody ChapterCreateRequest request,
@@ -59,6 +61,7 @@ public class ChapterController {
 
     @PutMapping("/chapters/{id}")
     @Operation(summary = "Update an existing chapter")
+    @PreAuthorize("hasAnyRole('CREATOR','ADMIN')")
     public ResponseEntity<ChapterResponse> updateChapter(
             @PathVariable Long id,
             @Valid @RequestBody ChapterUpdateRequest request,
@@ -72,6 +75,7 @@ public class ChapterController {
 
     @DeleteMapping("/chapters/{id}")
     @Operation(summary = "Delete an existing chapter")
+    @PreAuthorize("hasAnyRole('CREATOR','ADMIN')")
     public ResponseEntity<Void> deleteChapter(@PathVariable Long id, Principal principal) {
         if (principal == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
@@ -82,6 +86,7 @@ public class ChapterController {
 
     @PutMapping("/chapters/{id}/publish")
     @Operation(summary = "Publish a chapter (submitting for review)")
+    @PreAuthorize("hasAnyRole('CREATOR','ADMIN')")
     public ResponseEntity<ChapterResponse> publishChapter(@PathVariable Long id, Principal principal) {
         if (principal == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();

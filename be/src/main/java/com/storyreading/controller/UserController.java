@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
@@ -35,6 +36,7 @@ public class UserController {
 
     @PutMapping("/{userId}/lock")
     @Operation(summary = "Lock a user account (Admin only)")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> lockUser(
             @PathVariable Long userId,
             @RequestParam String reason,
@@ -45,6 +47,7 @@ public class UserController {
 
     @PutMapping("/{userId}/unlock")
     @Operation(summary = "Unlock a user account (Admin only)")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> unlockUser(@PathVariable Long userId) {
         userService.unlockUser(userId);
         return ResponseEntity.ok().build();

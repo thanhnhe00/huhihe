@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -36,6 +37,7 @@ public class ThemeCollectionController {
 
     @PostMapping
     @Operation(summary = "Create a new theme collection (Admin)")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ThemeCollectionDto> createCollection(@RequestBody Map<String, String> body) {
         String name = body.get("name");
         if (name == null || name.trim().isEmpty()) {
@@ -47,6 +49,7 @@ public class ThemeCollectionController {
 
     @PostMapping("/{collectionId}/stories/{storyId}")
     @Operation(summary = "Add a story to a theme collection (Admin)")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> addStoryToCollection(
             @PathVariable Long collectionId,
             @PathVariable Long storyId) {
@@ -56,6 +59,7 @@ public class ThemeCollectionController {
 
     @DeleteMapping("/{collectionId}/stories/{storyId}")
     @Operation(summary = "Remove a story from a theme collection (Admin)")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> removeStoryFromCollection(
             @PathVariable Long collectionId,
             @PathVariable Long storyId) {
@@ -65,6 +69,7 @@ public class ThemeCollectionController {
 
     @DeleteMapping("/{collectionId}")
     @Operation(summary = "Delete an entire theme collection (Admin)")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> deleteCollection(@PathVariable Long collectionId) {
         collectionService.deleteCollection(collectionId);
         return ResponseEntity.noContent().build();

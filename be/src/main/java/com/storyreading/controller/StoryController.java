@@ -12,6 +12,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
@@ -79,6 +80,7 @@ public class StoryController {
 
     @PostMapping
     @Operation(summary = "Create a new story (Creator/Admin)")
+    @PreAuthorize("hasAnyRole('CREATOR','ADMIN')")
     public ResponseEntity<StoryResponse> createStory(@Valid @RequestBody StoryCreateRequest request, Principal principal) {
         if (principal == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
@@ -89,6 +91,7 @@ public class StoryController {
 
     @PutMapping("/{id}")
     @Operation(summary = "Update an existing story (Creator/Admin)")
+    @PreAuthorize("hasAnyRole('CREATOR','ADMIN')")
     public ResponseEntity<StoryResponse> updateStory(
             @PathVariable Long id,
             @Valid @RequestBody StoryUpdateRequest request,
@@ -102,6 +105,7 @@ public class StoryController {
 
     @DeleteMapping("/{id}")
     @Operation(summary = "Delete an existing story (Creator/Admin)")
+    @PreAuthorize("hasAnyRole('CREATOR','ADMIN')")
     public ResponseEntity<Void> deleteStory(@PathVariable Long id, Principal principal) {
         if (principal == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
