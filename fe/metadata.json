@@ -1,0 +1,6 @@
+{
+  "name": "NetTruyen Clone",
+  "description": "Cổng đọc truyện tranh trực tuyến miễn phí với giao diện quen thuộc, mượt mà và đầy đủ tính năng.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
