@@ -8,10 +8,11 @@ import { motion } from 'motion/react';
 
 interface HomeViewProps {
   mangas: Manga[];
-  onNavigate: (view: 'home' | 'detail' | 'reader' | 'following' | 'history', mangaId?: string, chapterId?: string) => void;
+  onNavigate: (view: 'home' | 'detail' | 'reader' | 'following' | 'history' | 'management', mangaId?: string, chapterId?: string) => void;
   searchQuery: string;
   selectedGenre: string | null;
   onGenreSelect: (genre: string | null) => void;
+  genresList?: any[];
 }
 
 type SortType = 'updated' | 'views' | 'new';
@@ -22,7 +23,8 @@ export default function HomeView({
   onNavigate,
   searchQuery,
   selectedGenre,
-  onGenreSelect
+  onGenreSelect,
+  genresList
 }: HomeViewProps) {
   const [sortBy, setSortBy] = useState<SortType>('updated');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -266,7 +268,7 @@ export default function HomeView({
               <span>Thể loại truyện</span>
             </h3>
             <div className="grid grid-cols-2 gap-1.5 text-xs text-neutral-300">
-              {GENRES.map((g) => (
+              {(genresList || GENRES).map((g) => (
                 <button
                   key={g.id}
                   onClick={() => { onNavigate('home'); onGenreSelect(g.name); }}

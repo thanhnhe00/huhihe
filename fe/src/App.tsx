@@ -6,11 +6,12 @@ import MangaDetailView from './views/MangaDetailView';
 import ReaderView from './views/ReaderView';
 import FollowingView from './views/FollowingView';
 import HistoryView from './views/HistoryView';
-import { MOCK_MANGAS } from './data/mangas';
-import { ReadingHistoryItem } from './types';
+import ManagementView from './views/ManagementView';
+import { ReadingHistoryItem, Manga, Genre } from './types';
+import api from './utils/api';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'home' | 'detail' | 'reader' | 'following' | 'history'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'detail' | 'reader' | 'following' | 'history' | 'management'>('home');
   const [selectedMangaId, setSelectedMangaId] = useState<string | null>(null);
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
   
@@ -21,8 +22,113 @@ export default function App() {
   const [followedIds, setFollowedIds] = useState<string[]>([]);
   const [historyItems, setHistoryItems] = useState<ReadingHistoryItem[]>([]);
   
-  // Personalised user email for logging comments
-  const userEmail = "caohuongquynh2k6@gmail.com";
+  // Real or fallback logged-in user credentials
+  const [username, setUsername] = useState<string | null>(localStorage.getItem('username'));
+  const [role, setRole] = useState<string | null>(localStorage.getItem('role'));
+  const userEmail = username ? `${username}@gmail.com` : "caohuongquynh2k6@gmail.com";
+
+  // Dynamic mangas and categories loaded from backend
+  const [mangas, setMangas] = useState<Manga[]>([]);
+  const [categories, setCategories] = useState<Genre[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  // Load real backend data
+  const fetchBackendData = async () => {
+    setLoading(true);
+    try {
+      // 1. Fetch categories
+      const catRes = await api.get('/categories');
+      const catList: Genre[] = catRes.data.map((c: any) => ({
+        id: c.name,
+        name: c.name,
+        description: `Thể loại ${c.name}`
+      }));
+      setCategories(catList);
+
+      // 2. Fetch stories (up to 100 for proper catalog indexing)
+      const storiesRes = await api.get('/stories?size=100');
+      const storyCards = storiesRes.data.content || [];
+
+      // 3. Concurrently fetch details and chapters for each story
+      const fullMangas = await Promise.all(
+        storyCards.map(async (card: any) => {
+          try {
+            const detailRes = await api.get(`/stories/${card.storyId}`);
+            const story = detailRes.data;
+            const chapRes = await api.get(`/stories/${card.storyId}/chapters`);
+
+            const chapters = chapRes.data.map((ch: any) => ({
+              id: ch.chapterId.toString(),
+              mangaId: story.slug || story.storyId.toString(),
+              title: ch.title || `Chapter ${ch.chapterNumber}`,
+              updatedAt: ch.createdAt || new Date().toISOString(),
+              pages: ch.imageUrls || [],
+              viewCount: 0
+            }));
+
+            return {
+              id: story.slug || story.storyId.toString(),
+              title: story.title,
+              otherTitle: story.title,
+              author: story.author || 'Khuyết Danh',
+              status: story.status === 'COMPLETED' || story.status === 'Hoàn thành' ? 'Hoàn thành' : 'Đang tiến hành',
+              description: story.description || '',
+              coverUrl: story.coverImage || 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&auto=format&fit=crop&q=80',
+              bannerUrl: story.coverImage || '',
+              genres: story.categories ? story.categories.map((c: any) => c.name) : [],
+              viewCount: story.viewCount || 0,
+              commentCount: 0,
+              followerCount: story.followCount || 0,
+              rating: story.averageRating || 4.5,
+              chapters: chapters,
+              isHot: story.averageRating && story.averageRating >= 4.7
+            };
+          } catch (e) {
+            console.error('Error fetching details for storyId', card.storyId, e);
+            return null;
+          }
+        })
+      );
+
+      setMangas(fullMangas.filter(Boolean) as Manga[]);
+    } catch (err) {
+      console.error('Failed to fetch initial stories/categories', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Validate token with /auth/me on app mount and then load initial stories/categories
+  useEffect(() => {
+    const validateTokenAndLoad = async () => {
+      const token = localStorage.getItem('token');
+      if (token) {
+        try {
+          const profileRes = await api.get('/auth/me');
+          setUsername(profileRes.data.username);
+          setRole(profileRes.data.role);
+          localStorage.setItem('username', profileRes.data.username);
+          localStorage.setItem('role', profileRes.data.role);
+        } catch (e) {
+          console.error('Session expired or invalid token. Logging out...', e);
+          localStorage.removeItem('token');
+          localStorage.removeItem('username');
+          localStorage.removeItem('role');
+          setUsername(null);
+          setRole(null);
+        }
+      }
+      fetchBackendData();
+    };
+
+    validateTokenAndLoad();
+  }, []);
+
+  const handleAuthChange = () => {
+    setUsername(localStorage.getItem('username'));
+    setRole(localStorage.getItem('role'));
+    fetchBackendData();
+  };
 
   // Load state from localStorage on init
   useEffect(() => {
@@ -143,60 +249,77 @@ export default function App() {
         darkMode={darkMode}
         setDarkMode={setDarkMode}
         followedCount={followedIds.length}
+        onAuthChange={handleAuthChange}
       />
 
       {/* Main active layout routing viewport */}
       <main className="flex-1 w-full">
-        {currentView === 'home' && (
-          <HomeView
-            mangas={MOCK_MANGAS}
-            onNavigate={handleNavigate}
-            searchQuery={searchQuery}
-            selectedGenre={selectedGenre}
-            onGenreSelect={setSelectedGenre}
-          />
-        )}
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-24 text-neutral-400">
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-orange-500 mb-4"></div>
+            <p className="text-xs font-bold uppercase tracking-wider">Đang tải dữ liệu thực tế từ máy chủ...</p>
+          </div>
+        ) : (
+          <>
+            {currentView === 'home' && (
+              <HomeView
+                mangas={mangas}
+                onNavigate={handleNavigate}
+                searchQuery={searchQuery}
+                selectedGenre={selectedGenre}
+                onGenreSelect={setSelectedGenre}
+                genresList={categories}
+              />
+            )}
 
-        {currentView === 'detail' && selectedMangaId && (
-          <MangaDetailView
-            mangaId={selectedMangaId}
-            mangas={MOCK_MANGAS}
-            onNavigate={handleNavigate}
-            onGenreSelect={setSelectedGenre}
-            userEmail={userEmail}
-            isFollowed={followedIds.includes(selectedMangaId)}
-            onToggleFollow={handleToggleFollow}
-          />
-        )}
+            {currentView === 'detail' && selectedMangaId && (
+              <MangaDetailView
+                mangaId={selectedMangaId}
+                mangas={mangas}
+                onNavigate={handleNavigate}
+                onGenreSelect={setSelectedGenre}
+                userEmail={userEmail}
+                isFollowed={followedIds.includes(selectedMangaId)}
+                onToggleFollow={handleToggleFollow}
+              />
+            )}
 
-        {currentView === 'reader' && selectedMangaId && selectedChapterId && (
-          <ReaderView
-            mangaId={selectedMangaId}
-            chapterId={selectedChapterId}
-            mangas={MOCK_MANGAS}
-            onNavigate={handleNavigate}
-            userEmail={userEmail}
-            isFollowed={followedIds.includes(selectedMangaId)}
-            onToggleFollow={handleToggleFollow}
-            onAddToHistory={handleAddToHistory}
-          />
-        )}
+            {currentView === 'reader' && selectedMangaId && selectedChapterId && (
+              <ReaderView
+                mangaId={selectedMangaId}
+                chapterId={selectedChapterId}
+                mangas={mangas}
+                onNavigate={handleNavigate}
+                userEmail={userEmail}
+                isFollowed={followedIds.includes(selectedMangaId)}
+                onToggleFollow={handleToggleFollow}
+                onAddToHistory={handleAddToHistory}
+              />
+            )}
 
-        {currentView === 'following' && (
-          <FollowingView
-            mangas={MOCK_MANGAS}
-            followedIds={followedIds}
-            onNavigate={handleNavigate}
-            onToggleFollow={handleToggleFollow}
-          />
-        )}
+            {currentView === 'following' && (
+              <FollowingView
+                mangas={mangas}
+                followedIds={followedIds}
+                onNavigate={handleNavigate}
+                onToggleFollow={handleToggleFollow}
+              />
+            )}
 
-        {currentView === 'history' && (
-          <HistoryView
-            historyItems={historyItems}
-            onNavigate={handleNavigate}
-            onClearHistory={handleClearHistory}
-          />
+            {currentView === 'history' && (
+              <HistoryView
+                historyItems={historyItems}
+                onNavigate={handleNavigate}
+                onClearHistory={handleClearHistory}
+              />
+            )}
+
+            {currentView === 'management' && (
+              <ManagementView
+                onNavigate={handleNavigate}
+              />
+            )}
+          </>
         )}
       </main>
 

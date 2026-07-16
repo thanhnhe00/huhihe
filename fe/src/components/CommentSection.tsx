@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Send, ThumbsUp, CornerDownRight, MessageSquare, AlertCircle } from 'lucide-react';
 import { Comment } from '../types';
 import { generateInitialComments } from '../data/mangas';
+import api from '../utils/api';
 
 interface CommentSectionProps {
   mangaId: string;
@@ -15,92 +16,171 @@ export default function CommentSection({ mangaId, chapterId, userEmail }: Commen
   const [replyInput, setReplyInput] = useState('');
   const [activeReplyId, setActiveReplyId] = useState<string | null>(null);
 
-  // Load comments from localStorage or generate defaults
-  useEffect(() => {
-    const storageKey = `comments_${mangaId}`;
-    const stored = localStorage.getItem(storageKey);
-    if (stored) {
-      try {
-        setComments(JSON.parse(stored));
-      } catch (e) {
-        const initial = generateInitialComments(mangaId);
-        setComments(initial);
-      }
-    } else {
-      const initial = generateInitialComments(mangaId);
-      setComments(initial);
-      localStorage.setItem(storageKey, JSON.stringify(initial));
-    }
-  }, [mangaId]);
+  const [storyDbId, setStoryDbId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const isAuthenticated = !!localStorage.getItem('token');
 
-  const saveComments = (newComments: Comment[]) => {
-    setComments(newComments);
-    localStorage.setItem(`comments_${mangaId}`, JSON.stringify(newComments));
+  // Mapping function from api CommentResponse to local Comment
+  const mapBackendComment = (apiC: any): Comment => ({
+    id: apiC.commentId.toString(),
+    mangaId: apiC.storyId?.toString() || mangaId,
+    chapterId: apiC.chapterId?.toString(),
+    username: apiC.username || 'Người dùng',
+    avatar: apiC.avatarUrl || `https://api.dicebear.com/7.x/pixel-art/svg?seed=${apiC.username || 'avatar'}`,
+    content: apiC.content,
+    timestamp: apiC.createdAt ? new Date(apiC.createdAt).toLocaleString('vi-VN') : 'Vừa xong',
+    likes: 0,
+    replies: apiC.replies ? apiC.replies.map(mapBackendComment) : []
+  });
+
+  const loadComments = async (resolvedStoryId?: number) => {
+    setLoading(true);
+    try {
+      const storyIdToUse = resolvedStoryId || storyDbId;
+
+      if (chapterId) {
+        // Fetch comments by Chapter ID
+        const res = await api.get(`/chapters/${chapterId}/comments?size=50`);
+        const list = res.data.content || [];
+        setComments(list.map(mapBackendComment));
+      } else if (storyIdToUse) {
+        // Fetch comments by Story ID
+        const res = await api.get(`/stories/${storyIdToUse}/comments?size=50`);
+        const list = res.data.content || [];
+        setComments(list.map(mapBackendComment));
+      }
+    } catch (err) {
+      console.error('Failed to load comments from backend', err);
+      // Fallback to local storage or defaults
+      const stored = localStorage.getItem(`comments_${mangaId}`);
+      if (stored) {
+        setComments(JSON.parse(stored));
+      } else {
+        setComments(generateInitialComments(mangaId));
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleAddComment = (e: React.FormEvent) => {
+  useEffect(() => {
+    const resolveStoryAndLoad = async () => {
+      let resolvedStoryId: number | null = null;
+      try {
+        const isNumeric = /^\d+$/.test(mangaId);
+        if (isNumeric) {
+          resolvedStoryId = parseInt(mangaId);
+        } else {
+          const res = await api.get(`/stories/slug/${mangaId}`);
+          resolvedStoryId = res.data.storyId;
+        }
+        setStoryDbId(resolvedStoryId);
+      } catch (e) {
+        console.error('Could not resolve story for comments', e);
+      }
+
+      loadComments(resolvedStoryId || undefined);
+    };
+
+    resolveStoryAndLoad();
+  }, [mangaId, chapterId]);
+
+  const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!commentInput.trim()) return;
 
-    const nickname = userEmail ? userEmail.split('@')[0] : 'Khách Ẩn Danh';
-    const cleanEmail = userEmail || 'guest@example.com';
-    const avatarUrl = `https://api.dicebear.com/7.x/pixel-art/svg?seed=${cleanEmail}`;
+    if (isAuthenticated) {
+      try {
+        await api.post('/comments', {
+          storyId: storyDbId,
+          chapterId: chapterId ? parseInt(chapterId) : null,
+          content: commentInput.trim()
+        });
+        setCommentInput('');
+        loadComments();
+      } catch (err) {
+        console.error('Failed to post comment to server', err);
+      }
+    } else {
+      // Guest local comments fallback
+      const nickname = userEmail ? userEmail.split('@')[0] : 'Khách Ẩn Danh';
+      const cleanEmail = userEmail || 'guest@example.com';
+      const avatarUrl = `https://api.dicebear.com/7.x/pixel-art/svg?seed=${cleanEmail}`;
 
-    const newComment: Comment = {
-      id: `comment-${Date.now()}`,
-      mangaId,
-      chapterId,
-      username: nickname,
-      avatar: avatarUrl,
-      content: commentInput.trim(),
-      timestamp: 'Vừa xong',
-      likes: 0,
-      replies: []
-    };
+      const newComment: Comment = {
+        id: `comment-${Date.now()}`,
+        mangaId,
+        chapterId,
+        username: nickname,
+        avatar: avatarUrl,
+        content: commentInput.trim(),
+        timestamp: 'Vừa xong',
+        likes: 0,
+        replies: []
+      };
 
-    const updated = [newComment, ...comments];
-    saveComments(updated);
-    setCommentInput('');
+      const updated = [newComment, ...comments];
+      setComments(updated);
+      localStorage.setItem(`comments_${mangaId}`, JSON.stringify(updated));
+      setCommentInput('');
+    }
   };
 
-  const handleAddReply = (commentId: string) => {
+  const handleAddReply = async (commentId: string) => {
     if (!replyInput.trim()) return;
 
-    const nickname = userEmail ? userEmail.split('@')[0] : 'Khách Ẩn Danh';
-    const cleanEmail = userEmail || 'guest@example.com';
-    const avatarUrl = `https://api.dicebear.com/7.x/pixel-art/svg?seed=${cleanEmail}`;
-
-    const newReply: Comment = {
-      id: `reply-${Date.now()}`,
-      mangaId,
-      chapterId,
-      username: nickname,
-      avatar: avatarUrl,
-      content: replyInput.trim(),
-      timestamp: 'Vừa xong',
-      likes: 0
-    };
-
-    const updated = comments.map(c => {
-      if (c.id === commentId) {
-        return {
-          ...c,
-          replies: [...(c.replies || []), newReply]
-        };
+    if (isAuthenticated) {
+      try {
+        await api.post('/comments', {
+          storyId: storyDbId,
+          chapterId: chapterId ? parseInt(chapterId) : null,
+          parentId: parseInt(commentId),
+          content: replyInput.trim()
+        });
+        setReplyInput('');
+        setActiveReplyId(null);
+        loadComments();
+      } catch (err) {
+        console.error('Failed to post reply to server', err);
       }
-      return c;
-    });
+    } else {
+      // Guest local replies fallback
+      const nickname = userEmail ? userEmail.split('@')[0] : 'Khách Ẩn Danh';
+      const cleanEmail = userEmail || 'guest@example.com';
+      const avatarUrl = `https://api.dicebear.com/7.x/pixel-art/svg?seed=${cleanEmail}`;
 
-    saveComments(updated);
-    setReplyInput('');
-    setActiveReplyId(null);
+      const newReply: Comment = {
+        id: `reply-${Date.now()}`,
+        mangaId,
+        chapterId,
+        username: nickname,
+        avatar: avatarUrl,
+        content: replyInput.trim(),
+        timestamp: 'Vừa xong',
+        likes: 0
+      };
+
+      const updated = comments.map(c => {
+        if (c.id === commentId) {
+          return {
+            ...c,
+            replies: [...(c.replies || []), newReply]
+          };
+        }
+        return c;
+      });
+
+      setComments(updated);
+      localStorage.setItem(`comments_${mangaId}`, JSON.stringify(updated));
+      setReplyInput('');
+      setActiveReplyId(null);
+    }
   };
 
   const handleLike = (commentId: string, replyId?: string) => {
     const updated = comments.map(c => {
       if (c.id === commentId) {
         if (replyId) {
-          // Like is on a reply
           const updatedReplies = (c.replies || []).map(r => {
             if (r.id === replyId) {
               return { ...r, likes: r.likes + 1 };
@@ -109,19 +189,16 @@ export default function CommentSection({ mangaId, chapterId, userEmail }: Commen
           });
           return { ...c, replies: updatedReplies };
         } else {
-          // Like is on main comment
           return { ...c, likes: c.likes + 1 };
         }
       }
       return c;
     });
-    saveComments(updated);
+    setComments(updated);
+    localStorage.setItem(`comments_${mangaId}`, JSON.stringify(updated));
   };
 
-  // Filter comments depending on whether they are specific to a chapter
-  const displayedComments = chapterId 
-    ? comments.filter(c => !c.chapterId || c.chapterId === chapterId)
-    : comments;
+  const displayedComments = comments;
 
   return (
     <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-4 md:p-6 mt-8" id="manga-comment-section">

@@ -6,12 +6,13 @@ import {
 import { Manga, Chapter } from '../types';
 import CommentSection from '../components/CommentSection';
 import { motion } from 'motion/react';
+import api from '../utils/api';
 
 interface ReaderViewProps {
   mangaId: string;
   chapterId: string;
   mangas: Manga[];
-  onNavigate: (view: 'home' | 'detail' | 'reader' | 'following' | 'history', mangaId?: string, chapterId?: string) => void;
+  onNavigate: (view: 'home' | 'detail' | 'reader' | 'following' | 'history' | 'management', mangaId?: string, chapterId?: string) => void;
   userEmail?: string;
   isFollowed: boolean;
   onToggleFollow: (mangaId: string) => void;
@@ -28,31 +29,138 @@ export default function ReaderView({
   onToggleFollow,
   onAddToHistory
 }: ReaderViewProps) {
-  const manga = mangas.find(m => m.id === mangaId);
-  const currentChapterIndex = manga ? manga.chapters.findIndex(c => c.id === chapterId) : -1;
-  const chapter = manga && currentChapterIndex !== -1 ? manga.chapters[currentChapterIndex] : null;
+  const [manga, setManga] = useState<Manga | null>(null);
+  const [chapter, setChapter] = useState<Chapter | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const [dbStoryId, setDbStoryId] = useState<number | null>(null);
+  const [dbChapterId, setDbChapterId] = useState<number | null>(null);
+  const [localIsFollowed, setLocalIsFollowed] = useState(isFollowed);
 
   const [imageLoadedCount, setImageLoadedCount] = useState(0);
   const [showTopBar, setShowTopBar] = useState(true);
   const [readingMode, setReadingMode] = useState<'scroll' | 'page'>('scroll');
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
 
-  // Auto-save to reading history when this view is rendered
+  // Dynamic API fetching of chapter and story sibling list
   useEffect(() => {
-    if (manga && chapter) {
-      onAddToHistory(
-        manga.id,
-        chapter.id,
-        chapter.title,
-        manga.title,
-        manga.coverUrl
-      );
-    }
-    // Scroll to top
+    const fetchReaderData = async () => {
+      setLoading(true);
+      try {
+        // 1. Resolve Story Details
+        let storyData: any;
+        const isNumeric = /^\d+$/.test(mangaId);
+        if (isNumeric) {
+          const res = await api.get(`/stories/${mangaId}`);
+          storyData = res.data;
+        } else {
+          const res = await api.get(`/stories/slug/${mangaId}`);
+          storyData = res.data;
+        }
+        setDbStoryId(storyData.storyId);
+
+        // 2. Fetch Chapters
+        const chapRes = await api.get(`/stories/${storyData.storyId}/chapters`);
+        const mappedChapters = chapRes.data.map((ch: any) => ({
+          id: ch.chapterId.toString(),
+          mangaId: storyData.slug || storyData.storyId.toString(),
+          title: ch.title || `Chapter ${ch.chapterNumber}`,
+          updatedAt: ch.createdAt || new Date().toISOString(),
+          pages: ch.imageUrls || [],
+          viewCount: 0
+        }));
+
+        const mappedManga: Manga = {
+          id: storyData.slug || storyData.storyId.toString(),
+          title: storyData.title,
+          otherTitle: storyData.title,
+          author: storyData.author || 'Khuyết Danh',
+          status: storyData.status === 'COMPLETED' || storyData.status === 'Hoàn thành' ? 'Hoàn thành' : 'Đang tiến hành',
+          description: storyData.description || '',
+          coverUrl: storyData.coverImage || 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&auto=format&fit=crop&q=80',
+          bannerUrl: storyData.coverImage || '',
+          genres: storyData.categories ? storyData.categories.map((c: any) => c.name) : [],
+          viewCount: storyData.viewCount || 0,
+          commentCount: 0,
+          followerCount: storyData.followCount || 0,
+          rating: storyData.averageRating || 4.5,
+          chapters: mappedChapters,
+          isHot: storyData.averageRating && storyData.averageRating >= 4.7
+        };
+
+        setManga(mappedManga);
+
+        // 3. Resolve Current Chapter Details
+        const activeChId = parseInt(chapterId) || parseInt(mappedChapters[0]?.id || '0');
+        setDbChapterId(activeChId);
+
+        const activeChRes = await api.get(`/chapters/${activeChId}`);
+        const activeChData = activeChRes.data;
+
+        const mappedChapter: Chapter = {
+          id: activeChData.chapterId.toString(),
+          mangaId: storyData.slug || storyData.storyId.toString(),
+          title: activeChData.title || `Chapter ${activeChData.chapterNumber}`,
+          updatedAt: activeChData.createdAt || new Date().toISOString(),
+          pages: activeChData.imageUrls || [],
+          viewCount: 0
+        };
+
+        setChapter(mappedChapter);
+
+        // 4. Log/Save history in database if logged in, fallback to local storage history
+        if (localStorage.getItem('token')) {
+          try {
+            await api.post('/histories', {
+              storyId: storyData.storyId,
+              chapterId: activeChId,
+              scrollPosition: 0,
+              isPrompted: false
+            });
+          } catch (e) {
+            console.error('Failed to log backend reading history', e);
+          }
+          try {
+            const followStatusRes = await api.get(`/follows/${storyData.storyId}/status`);
+            setLocalIsFollowed(followStatusRes.data);
+          } catch (e) {
+            console.error(e);
+          }
+        } else {
+          setLocalIsFollowed(isFollowed);
+        }
+
+        // Always save locally as fallback
+        onAddToHistory(
+          mappedManga.id,
+          mappedChapter.id,
+          mappedChapter.title,
+          mappedManga.title,
+          mappedManga.coverUrl
+        );
+
+      } catch (err) {
+        console.error('Failed to resolve reader view data', err);
+        // Fallback to local props
+        const fallbackManga = mangas.find(m => m.id === mangaId);
+        if (fallbackManga) {
+          setManga(fallbackManga);
+          const fallbackCh = fallbackManga.chapters.find(c => c.id === chapterId);
+          if (fallbackCh) {
+            setChapter(fallbackCh);
+          }
+          setLocalIsFollowed(isFollowed);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchReaderData();
     window.scrollTo({ top: 0, behavior: 'instant' as any });
     setImageLoadedCount(0);
     setCurrentPageIndex(0);
-  }, [mangaId, chapterId]);
+  }, [mangaId, chapterId, isFollowed]);
 
   // Handle scroll detection to toggle topbar for clean immersive mode
   useEffect(() => {
@@ -70,6 +178,15 @@ export default function ReaderView({
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-neutral-400 bg-neutral-950 min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mb-3"></div>
+        <p className="text-xs font-bold uppercase tracking-wider">Đang tải nội dung chương đọc...</p>
+      </div>
+    );
+  }
+
   if (!manga || !chapter) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-16 text-center text-neutral-400">
@@ -83,6 +200,8 @@ export default function ReaderView({
       </div>
     );
   }
+
+  const currentChapterIndex = manga.chapters.findIndex(c => c.id === chapter.id);
 
   // NetTruyen chapters are listed newest-first inside our data structure.
   // Therefore:
@@ -103,6 +222,25 @@ export default function ReaderView({
       const nextChapter = manga.chapters[currentChapterIndex - 1];
       onNavigate('reader', manga.id, nextChapter.id);
     }
+  };
+
+  const handleToggleFollowClick = async () => {
+    if (!manga || !dbStoryId) return;
+
+    if (localStorage.getItem('token')) {
+      try {
+        if (localIsFollowed) {
+          await api.delete(`/follows/${dbStoryId}`);
+          setLocalIsFollowed(false);
+        } else {
+          await api.post('/follows', { storyId: dbStoryId });
+          setLocalIsFollowed(true);
+        }
+      } catch (e) {
+        console.error('Failed to toggle follow in reader view', e);
+      }
+    }
+    onToggleFollow(manga.id);
   };
 
   const scrollToTop = () => {
@@ -174,11 +312,11 @@ export default function ReaderView({
           {/* Right quick save / settings */}
           <div className="flex items-center space-x-1.5">
             <button
-              onClick={() => onToggleFollow(manga.id)}
-              className={`p-2 rounded ${isFollowed ? 'bg-red-600/20 text-red-500 border border-red-500/30' : 'bg-neutral-800 text-neutral-400 hover:text-orange-400'} transition cursor-pointer`}
-              title={isFollowed ? 'Bỏ theo dõi' : 'Theo dõi truyện'}
+              onClick={handleToggleFollowClick}
+              className={`p-2 rounded ${localIsFollowed ? 'bg-red-600/20 text-red-500 border border-red-500/30' : 'bg-neutral-800 text-neutral-400 hover:text-orange-400'} transition cursor-pointer`}
+              title={localIsFollowed ? 'Bỏ theo dõi' : 'Theo dõi truyện'}
             >
-              <Heart className={`h-4 w-4 ${isFollowed ? 'fill-current' : ''}`} />
+              <Heart className={`h-4 w-4 ${localIsFollowed ? 'fill-current' : ''}`} />
             </button>
           </div>
         </div>
