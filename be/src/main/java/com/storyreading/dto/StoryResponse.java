@@ -17,6 +17,7 @@ public class StoryResponse {
     private Long creatorId;
     private String creatorName;
     private String title;
+    private String slug;
     private String author;
     private String description;
     private String coverImage;
@@ -27,6 +28,7 @@ public class StoryResponse {
     private LocalDateTime createdAt;
     private List<CategoryDto> categories;
     private Double averageRating;
+    private Long ratingCount;
     private Long followCount;
     private Long viewCount;
 }

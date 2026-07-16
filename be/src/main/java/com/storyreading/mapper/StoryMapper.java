@@ -20,7 +20,7 @@ public class StoryMapper {
         this.categoryMapper = categoryMapper;
     }
 
-    public StoryResponse toDto(Story story, Double averageRating, Long followCount, Long viewCount) {
+    public StoryResponse toDto(Story story, Double averageRating, Long followCount, Long viewCount, Long ratingCount) {
         if (story == null) {
             return null;
         }
@@ -29,6 +29,7 @@ public class StoryMapper {
                 .creatorId(story.getCreator() != null ? story.getCreator().getUserId() : null)
                 .creatorName(story.getCreator() != null ? story.getCreator().getUsername() : null)
                 .title(story.getTitle())
+                .slug(story.getSlug())
                 .author(story.getAuthor())
                 .description(story.getDescription())
                 .coverImage(story.getCoverImage())
@@ -40,6 +41,7 @@ public class StoryMapper {
                 .categories(story.getCategories() != null ?
                         story.getCategories().stream().map(categoryMapper::toDto).collect(Collectors.toList()) : new ArrayList<>())
                 .averageRating(averageRating != null ? averageRating : 0.0)
+                .ratingCount(ratingCount != null ? ratingCount : 0L)
                 .followCount(followCount != null ? followCount : 0L)
                 .viewCount(viewCount != null ? viewCount : 0L)
                 .build();
@@ -68,6 +70,7 @@ public class StoryMapper {
         Story story = new Story();
         story.setStoryId(dto.getStoryId());
         story.setTitle(dto.getTitle());
+        story.setSlug(dto.getSlug());
         story.setAuthor(dto.getAuthor());
         story.setDescription(dto.getDescription());
         story.setCoverImage(dto.getCoverImage());

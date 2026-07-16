@@ -13,8 +13,9 @@ import jakarta.validation.constraints.NotNull;
 @AllArgsConstructor
 @Builder
 public class CommentRequest {
-    @NotNull
     private Long chapterId;
+
+    private Long storyId;
 
     private Long parentId; // For reply nested comment support
 

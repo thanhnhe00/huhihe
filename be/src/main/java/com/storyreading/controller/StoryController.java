@@ -69,6 +69,14 @@ public class StoryController {
         return ResponseEntity.ok(story);
     }
 
+    @GetMapping("/slug/{slug}")
+    @Operation(summary = "Get details of a story by unique slug")
+    public ResponseEntity<StoryResponse> getStoryBySlug(@PathVariable String slug, Principal principal) {
+        String username = (principal != null) ? principal.getName() : null;
+        StoryResponse story = storyService.getStoryBySlug(slug, username);
+        return ResponseEntity.ok(story);
+    }
+
     @PostMapping
     @Operation(summary = "Create a new story (Creator/Admin)")
     public ResponseEntity<StoryResponse> createStory(@Valid @RequestBody StoryCreateRequest request, Principal principal) {

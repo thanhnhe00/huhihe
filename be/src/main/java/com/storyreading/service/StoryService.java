@@ -20,6 +20,8 @@ public interface StoryService {
 
     StoryResponse getStoryById(Long storyId, String username);
 
+    StoryResponse getStoryBySlug(String slug, String username);
+
     Page<StoryCardDto> searchStories(String keyword, Pageable pageable);
 
     Page<StoryCardDto> latestStories(Pageable pageable);

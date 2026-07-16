@@ -38,6 +38,10 @@ public class Story {
     private String title;
 
     @Size(max = 255)
+    @Column(name = "slug", unique = true, length = 255)
+    private String slug;
+
+    @Size(max = 255)
     @Column(name = "author", length = 255)
     private String author;
 

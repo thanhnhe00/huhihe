@@ -12,6 +12,8 @@ import java.util.List;
 public interface CommentRepository extends JpaRepository<Comment, Long> {
     Page<Comment> findByChapterChapterIdAndParentIsNullAndIsHiddenFalseOrderByCreatedAtDesc(Long chapterId, Pageable pageable);
 
+    Page<Comment> findByStoryStoryIdAndParentIsNullAndIsHiddenFalseOrderByCreatedAtDesc(Long storyId, Pageable pageable);
+
     List<Comment> findByParentCommentIdAndIsHiddenFalseOrderByCreatedAtAsc(Long parentId);
 
     Page<Comment> findByIsHiddenFalseOrderByCreatedAtDesc(Pageable pageable);

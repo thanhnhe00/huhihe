@@ -14,5 +14,7 @@ public interface CommentService {
 
     Page<CommentResponse> getCommentsByChapter(Long chapterId, Pageable pageable);
 
+    Page<CommentResponse> getCommentsByStory(Long storyId, Pageable pageable);
+
     Page<CommentResponse> getAllComments(Pageable pageable);
 }

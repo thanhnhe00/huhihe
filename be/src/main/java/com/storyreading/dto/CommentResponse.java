@@ -15,6 +15,7 @@ import java.util.List;
 public class CommentResponse {
     private Long commentId;
     private Long chapterId;
+    private Long storyId;
     private Long userId;
     private String username;
     private String avatarUrl;
